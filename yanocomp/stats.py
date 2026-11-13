@@ -19,16 +19,32 @@ N_COMPONENTS = 2
 
 def pca_comp1(X, standardise=True):
     '''Quick principal components with 1 comp'''
+    X = np.asarray(X)
+    if X.ndim != 2 or X.shape[0] == 0 or X.shape[1] == 0:
+        n = X.shape[0] if X.ndim >= 1 else 0
+        return np.full(n, np.nan)
     if standardise:
         mu = X.mean(axis=0)
         sig = np.sqrt(((X - mu) ** 2.0).mean(0))
+        # Guard against zero std (constant columns) which causes NaN/inf
+        sig[sig == 0] = 1.0
         X = (X - mu) / sig
-    u, s, v = np.linalg.svd(X, full_matrices=False)
+    # Check for NaN/inf after standardisation
+    if not np.all(np.isfinite(X)):
+        return np.full(X.shape[0], np.nan)
+    try:
+        u, s, v = np.linalg.svd(X, full_matrices=False)
+    except (np.linalg.LinAlgError, ValueError, FloatingPointError):
+        logger.warning("SVD failed for position; returning NaN")
+        return np.full(X.shape[0], np.nan)
+    if s.size == 0:
+        return np.full(X.shape[0], np.nan)
     vecs = v.T
     i1 = np.argmax(s ** 2.0)
     vecs = vecs[:, i1, np.newaxis]
     comp1 = X.dot(vecs)
     return comp1.ravel()
+
 
 
 def _ks_d(data1, data2, pooled):
@@ -69,8 +85,11 @@ def pca_kstest(cntrl_data, treat_data, max_size, random_state):
     n_cntrl = len(cntrl_data)
     pooled = np.concatenate([cntrl_data, treat_data])
     comps = pca_comp1(pooled)
+    if np.any(np.isnan(comps)):
+        return np.nan, np.nan
     ks, p_val = ks_2samp(comps[:n_cntrl], comps[n_cntrl:], comps)
     return ks, p_val
+
 
 
 def median_absolute_deviation(arr):
